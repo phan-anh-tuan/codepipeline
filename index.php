@@ -42,6 +42,7 @@
       }
     ?>
     <?php
+      print "PHP INFO below <br/>";
       phpinfo();
     ?>
   </body>
