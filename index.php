@@ -41,9 +41,5 @@
         print "EC2 instance-id = " . $instanceid . "<br />";
       }
     ?>
-    <?php
-      print "PHP INFO below <br/>";
-      phpinfo();
-    ?>
   </body>
 </html>
