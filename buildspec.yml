@@ -31,7 +31,6 @@ phases:
       # - command
   # pre_build:
   #   commands:
-  #     - ./mvnw install
       # - command
   build:
     commands:
