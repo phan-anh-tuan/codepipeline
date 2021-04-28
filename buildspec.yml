@@ -27,18 +27,18 @@ phases:
       java: corretto11
       # name: version
     #commands:
+      - echo install started on `date`
       # - command
-      # - command
-  # pre_build:
-  #   commands:
-      # - command
+  pre_build:
+    commands:
+      - echo pre_build started on `date`
   build:
     commands:
-      - echo Build started on `date`
-      - ./mvnw test
+      - echo build started on `date`
+      # - ./mvnw test -> test will be executed in package goal anyway
   post_build:
     commands:
-      - echo Build completed on `date`
+      - echo post_build completed on `date`
       - ./mvnw clean package
 #reports:
   #report-name-or-arn:
