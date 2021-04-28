@@ -27,7 +27,7 @@ phases:
       java: corretto11
       # name: version
     commands:
-      - echo install started on `date`
+      # - echo install started on `date`
       # - command
   pre_build:
     commands:
