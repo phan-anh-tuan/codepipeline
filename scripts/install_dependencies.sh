@@ -8,7 +8,7 @@ tar xvf apache-tomcat-${VER}.tar.gz -C /usr/share/
 ln -s /usr/share/apache-tomcat-$VER/ /usr/share/tomcat
 chown -R tomcat:tomcat /usr/share/tomcat
 chown -R tomcat:tomcat /usr/share/apache-tomcat-$VER/ 
-cat <<EOF > /etc/systemd/system/tomcat.service
+tee /etc/systemd/system/tomcat.service<<EOF
 [Unit]
 Description=Tomcat Server
 After=syslog.target network.target
@@ -30,6 +30,7 @@ ExecStop=/usr/share/tomcat/bin/catalina.sh stop
 [Install]
 WantedBy=multi-user.target
 EOF
-chkconfig tomcat --add
-service tomcat start
-chkconfig tomcat on
+systemctl daemon-reload
+systemctl start tomcat
+systemctl enable tomcat
+iptables -t nat -A PREROUTING -i eth0 -p tcp --dport 80 -j REDIRECT --to-port 8080
