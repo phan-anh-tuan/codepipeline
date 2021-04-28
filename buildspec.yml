@@ -59,6 +59,6 @@ artifacts:
   discard-paths: yes
   base-directory: .
 
-#cache:
-  #paths:
-    # - paths
+cache:
+  paths:
+    - '/root/.m2/**/*'
