@@ -93,7 +93,6 @@ if [ -z "$M2_HOME" ] ; then
 
   # make it fully qualified
   M2_HOME=`cd "$M2_HOME" && pwd`
-
   cd "$saveddir"
   # echo Using m2 at $M2_HOME
 fi
@@ -302,6 +301,13 @@ MAVEN_CMD_LINE_ARGS="$MAVEN_CONFIG $@"
 export MAVEN_CMD_LINE_ARGS
 
 WRAPPER_LAUNCHER=org.apache.maven.wrapper.MavenWrapperMain
+echo "****** JAVACMD: $JAVACMD"
+echo "****** MAVEN_OPTS: $MAVEN_OPTS"
+echo "****** MAVEN_PROJECTBASEDIR: $MAVEN_PROJECTBASEDIR"
+echo "****** M2_HOME: $M2_HOME"
+echo "****** WRAPPER_LAUNCHER: $WRAPPER_LAUNCHER"
+echo "****** MAVEN_CONFIG: $MAVEN_CONFIG"
+
 
 exec "$JAVACMD" \
   $MAVEN_OPTS \
