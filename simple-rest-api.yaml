@@ -1,1 +1,364 @@
-../simple-rest-api.yaml
+AWSTemplateFormatVersion: 2010-09-09
+Parameters:
+  AlbDomainName:
+    Type: String
+    Description: Load Balancer Domain Name
+  AlbArn:
+    Type: String
+    Description: Load Balancer ARN
+Resources:
+  BasicLambdaExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+  HelloWorldFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: nodejs12.x
+      Role: !GetAtt BasicLambdaExecutionRole.Arn
+      Handler: index.handler
+      Code:
+        ZipFile: |
+          exports.handler = async function(event, context) {
+            console.log("REQUEST RECEIVED:\n" + JSON.stringify(event))
+            const response = {
+                statusCode: 200,
+                body: JSON.stringify('Hello from Lambda!'),
+            };
+            return response;
+          }
+      Description: Invoke a function during stack creation.
+      TracingConfig:
+        Mode: Active
+  ApiGwInvokeLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt HelloWorldFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub
+        - arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${MyRestApiID}/*/*/*
+        - { MyRestApiID: !Ref MyRestApi }
+  LambdaAuthorizerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: nodejs12.x
+      Role: !GetAtt BasicLambdaExecutionRole.Arn
+      Handler: index.handler
+      Code:
+        ZipFile: |
+          exports.handler = async function(event, context) {
+            console.log("REQUEST RECEIVED:\n" + JSON.stringify(event))
+            const response = {};
+            response.principalId = "tuaph";
+            response.context = {
+                "note": "this function is protected by lambda authorizer"
+            };
+            response.usageIdentifierKey = "my-rest-api-usage-key";
+            
+            const policyDocument = {};
+            response.policyDocument = policyDocument;
+            policyDocument.Version = "2012-10-17";
+            const statements = [];
+            statements[0] = {
+                "Action": "execute-api:Invoke",
+                "Effect": event.type == 'TOKEN' ? event.authorizationToken : event.headers.authorization,
+                "Resource": event.methodArn
+            };
+            policyDocument.Statement = statements;
+            return response;
+          }
+      Description: Authorize/Deny API calls.
+      TracingConfig:
+        Mode: Active
+  ApiGwInvokeAuthorizerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt LambdaAuthorizerFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub
+        - arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${MyRestApiID}/*/*
+        - { MyRestApiID: !Ref MyRestApi }
+  MyRestApi:
+    Type: 'AWS::ApiGateway::RestApi'
+    Properties:
+      Description: A Simple Rest API
+      Name: a-simple-rest-api
+      EndpointConfiguration:
+        Types: ['REGIONAL']
+  # ************************
+  #  API Authorizer section
+  # ************************ 
+  CustomLambdaAuthorizer:
+    Type: AWS::ApiGateway::Authorizer
+    Properties: 
+      # AuthorizerCredentials: String
+      AuthorizerResultTtlInSeconds: 0
+      AuthorizerUri: !Sub >-
+        arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaAuthorizerFunction.Arn}/invocations
+      # AuthType: String
+      IdentitySource: 'method.request.header.Authorization'
+      # IdentityValidationExpression: String
+      Name: 'customer-lambda-token-authorizer'
+      # ProviderARNs: 
+      #   - String
+      RestApiId: !Ref MyRestApi
+      Type: 'TOKEN'
+  # ************************
+  #  API Resources section
+  # ************************ 
+  MockResourcePath:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId: !Ref MyRestApi
+      ParentId: !GetAtt 
+        - MyRestApi
+        - RootResourceId
+      PathPart: mock
+  MockProtectedResourcePath:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId: !Ref MyRestApi
+      ParentId: !Ref MockResourcePath
+      PathPart: protected
+  ProxyResourcePath:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId: !Ref MyRestApi
+      ParentId: !GetAtt 
+        - MyRestApi
+        - RootResourceId
+      PathPart: proxy
+  LambdaProxyResourcePath:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId: !Ref MyRestApi
+      ParentId: !Ref ProxyResourcePath
+      PathPart: lambda
+  HttpProxyResourcePath:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId: !Ref MyRestApi
+      ParentId: !Ref ProxyResourcePath
+      PathPart: http
+  VpcLinkProxyResourcePath:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId: !Ref MyRestApi
+      ParentId: !Ref ProxyResourcePath
+      PathPart: vpclink
+  NonProxyResourcePath:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId: !Ref MyRestApi
+      ParentId: !GetAtt 
+        - MyRestApi
+        - RootResourceId
+      PathPart: non-proxy
+  LambdaResourcePath:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId: !Ref MyRestApi
+      ParentId: !Ref NonProxyResourcePath
+      PathPart: lambda
+  HttpResourcePath:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId: !Ref MyRestApi
+      ParentId: !Ref NonProxyResourcePath
+      PathPart: http
+  # ************************
+  #  API Methods section
+  # ************************ 
+  MockGetMethod:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      RestApiId: !Ref MyRestApi
+      ResourceId: !Ref MockResourcePath
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: '200'
+            ResponseTemplates:
+              'application/json': '{"message": "Response from MOCK GET method", "context": "$context"}'
+        RequestTemplates:
+            'application/json': '{"statusCode": 200}'
+        PassthroughBehavior: WHEN_NO_MATCH
+        # PassthroughBehavior: 'WHEN_NO_TEMPLATES'
+      MethodResponses: 
+          - StatusCode: '200'
+  MockProtectedGetMethod:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      RestApiId: !Ref MyRestApi
+      ResourceId: !Ref MockProtectedResourcePath
+      HttpMethod: GET
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref CustomLambdaAuthorizer
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: '200'
+            ResponseTemplates:
+              'application/json': '{"message": "Response from MOCK GET method", "context": "$context"}'
+        RequestTemplates:
+            'application/json': '{"statusCode": 200}'
+        PassthroughBehavior: WHEN_NO_MATCH
+        # PassthroughBehavior: 'WHEN_NO_TEMPLATES'
+      MethodResponses: 
+          - StatusCode: '200'
+  LambdaIntegrationPostMethod:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      RestApiId: !Ref MyRestApi
+      ResourceId: !Ref LambdaResourcePath
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS
+        IntegrationHttpMethod: POST
+        Uri: !Sub >-
+          arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${HelloWorldFunction.Arn}/invocations
+        IntegrationResponses:
+          - StatusCode: '200'
+            ResponseTemplates:
+              'application/json': ''
+      MethodResponses:
+        - StatusCode: '200'
+  LambdaProxyIntegrationPostMethod:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      RestApiId: !Ref MyRestApi
+      ResourceId: !Ref LambdaProxyResourcePath
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub >-
+          arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${HelloWorldFunction.Arn}/invocations
+  HttpProxyIntegrationPostMethod:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      RestApiId: !Ref MyRestApi
+      ResourceId: !Ref HttpProxyResourcePath
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: HTTP_PROXY
+        IntegrationHttpMethod: POST
+        Uri: 'https://httpbin.org/post'
+  VpcLinkProxyIntegrationGetMethod:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      RestApiId: !Ref MyRestApi
+      ResourceId: !Ref VpcLinkProxyResourcePath
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: HTTP_PROXY
+        ConnectionType: 'VPC_LINK'
+        ConnectionId: !Ref MyVpcLink
+        IntegrationHttpMethod: GET
+        Uri: !Sub 
+          - "https://${alb_domain_name}"
+          - {
+              # alb_domain_name: !GetAtt ApplicationLoadBalancer.Outputs.MyAlbDomainName,
+              alb_domain_name: !Ref AlbDomainName,
+            }          
+  HttpIntegrationPostMethod:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      RestApiId: !Ref MyRestApi
+      ResourceId: !Ref HttpResourcePath
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: HTTP
+        IntegrationHttpMethod: POST
+        Uri: 'https://httpbin.org/post'
+        IntegrationResponses:
+          - StatusCode: '200'
+            ResponseTemplates:
+              'application/json': ''
+      MethodResponses:
+        - StatusCode: '200'
+  # ************************
+  #  API VPC Links section
+  # ************************ 
+  MyVpcLink:
+    Type: AWS::ApiGateway::VpcLink
+    Properties:
+        Description: 'Vpc Link'
+        Name: !Ref MyRestApi
+        TargetArns:
+            # - !GetAtt ApplicationLoadBalancer.Outputs.MyAlbArn
+            - !Ref AlbArn
+  # ************************
+  #  API Deployments section
+  # ************************ 
+  Deployment1435:
+    Type: 'AWS::ApiGateway::Deployment'
+    DependsOn:
+      - LambdaIntegrationPostMethod
+      - LambdaProxyIntegrationPostMethod
+      - HttpIntegrationPostMethod
+      - HttpProxyIntegrationPostMethod
+      - MockGetMethod
+      - MockProtectedGetMethod
+      - VpcLinkProxyIntegrationGetMethod
+    Properties:
+      RestApiId: !Ref MyRestApi
+      Description: Api Deployment
+  TestStage:
+    Type: AWS::ApiGateway::Stage
+    Properties: 
+      # AccessLogSetting: 
+      # CacheClusterEnabled: Boolean
+      # CacheClusterSize: String
+      # CanarySetting: 
+      #   CanarySetting
+      # ClientCertificateId: String
+      DeploymentId: !Ref Deployment1435
+      Description: 'QA stage'
+      # DocumentationVersion: String
+      MethodSettings: 
+        - DataTraceEnabled: true
+          # CacheDataEncrypted: Boolean
+          # CacheTtlInSeconds: Integer
+          # CachingEnabled: Boolean
+          HttpMethod: '*'
+          LoggingLevel: 'INFO'
+          # MetricsEnabled: Boolean
+          ResourcePath: '/*'
+          # ThrottlingBurstLimit: Integer
+          # ThrottlingRateLimit: Double
+      RestApiId: !Ref MyRestApi
+      StageName: test
+      # Tags: 
+      #   - Tag
+      TracingEnabled: true
+      # Variables: 
+      #   Key : Value
+Outputs:
+   apiGatewayInvokeURL: 
+      Value: !Sub 
+        - "https://${apiId}.execute-api.${AWS::Region}.amazonaws.com/${stageName}"
+        - {
+            apiId: !Ref MyRestApi,
+            stageName: test
+          }

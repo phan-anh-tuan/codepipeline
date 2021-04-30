@@ -1,1 +1,147 @@
-../application-load-balancing.yaml
+AWSTemplateFormatVersion: 2010-09-09
+Parameters:
+  AlbSubnets:
+    Type: CommaDelimitedList
+    Description: comma separated list of ALB subnet Ids
+    Default: 'subnet-f4996a92,subnet-261ff26e,subnet-8d583ad5'
+  AlbSecurityGroups:
+    Type: CommaDelimitedList
+    Description: comma separated list of ALB Security Group Ids
+    Default: 'sg-051fd07d3d90455f0'
+  # LoadBalancerName:
+  #   Type: String
+  #   Description: Load Balancer Name
+  #   Default: 'My-NLB'
+  #   AllowedPattern: '[a-zA-Z0-9\-]+'
+  #   ConstraintDescription: You should enter a valid email
+  LoadBalancerType:
+    Type: String
+    Description: Load Balancer Type, valid values include application | gateway | network
+    Default: network
+    AllowedValues:
+      - application
+      - gateway
+      - network
+  ApplicationPort:
+    Type: Number
+    Description: Application Port
+    Default: 443
+  ApplicationProtocol:
+    Type: String
+    Description: Application Protocol, valid values include GENEVE | HTTP | HTTPS | TCP | TCP_UDP | TLS | UDP
+    Default: TLS
+    AllowedValues:
+      - GENEVE
+      - HTTP
+      - HTTPS
+      - TCP
+      - TCP_UDP
+      - TLS
+      - UDP
+  ApplicationVpc:
+    Type: String
+    Description: VPC where application resides
+    Default: 'vpc-3a676c5d'
+  HostedZoneId:
+    Type: String
+    Description: Load Balancer HostedZoneId
+    Default: 'Z01785203EOI8J1F21E7Q'
+  LoadBalancerDomainName:
+    Type: String
+    Description: Load Balancer Domain Name
+    Default: 'simple-nlb.tuaph.awsps.myinstance.com'
+Conditions:
+  IsNLB: !Equals 
+    - !Ref LoadBalancerType
+    - network
+Resources:
+  MyLoadBalancer:
+    Type: 'AWS::ElasticLoadBalancingV2::LoadBalancer'
+    Properties:
+      # Name: !Ref LoadBalancerName
+      Type: !Ref LoadBalancerType
+      IpAddressType: 'ipv4'
+      Scheme: 'internet-facing'
+      SecurityGroups: 
+        !If [IsNLB,!Ref 'AWS::NoValue',!Ref AlbSecurityGroups]
+      Tags: 
+        - Key: 'auto-delete'
+          Value: 'never'
+      # You can specify only one subnet per Availability Zone  
+      Subnets: !Ref AlbSubnets
+      # LoadBalancerAttributes:
+      #   - deletion_protection.enabled
+      #   - access_logs.s3.enabled
+      #   - access_logs.s3.bucket
+      #   - access_logs.s3.prefix
+      #   - idle_timeout.timeout_seconds
+      #   - routing.http.desync_mitigation_mode
+      #   - routing.http.drop_invalid_header_fields.enabled
+      #   - routing.http2.enabled
+      #   - waf.fail_open.enabled
+      #   - load_balancing.cross_zone.enabled
+  ApplicationRequestListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties: 
+      # AlpnPolicy: 
+      #   - String
+      Certificates: 
+        - CertificateArn: 'arn:aws:acm:ap-southeast-2:419790583141:certificate/923b01ca-8771-467a-adfb-75d91ca8d9b5'
+      DefaultActions: 
+          - TargetGroupArn: !Ref ApplicationTargetGroup
+            Type: 'forward'
+      LoadBalancerArn: !Ref MyLoadBalancer
+      Port: !Ref ApplicationPort
+      Protocol: !Ref ApplicationProtocol
+      # SslPolicy: String
+  ApplicationTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties: 
+      HealthCheckEnabled: true
+      HealthCheckIntervalSeconds: 30
+      HealthCheckPath:
+        !If [IsNLB,!Ref 'AWS::NoValue','/']
+      HealthCheckPort: 80
+      HealthCheckProtocol:
+        !If [IsNLB,'TCP','HTTP'] 
+      HealthCheckTimeoutSeconds:
+         !If [IsNLB,!Ref 'AWS::NoValue',5]
+      HealthyThresholdCount: 2
+      Matcher: 
+        !If [IsNLB,!Ref 'AWS::NoValue',HttpCode: 200-299]
+      # Name: 'Application-Target-Group'
+      Port: 80
+      Protocol:
+        !If [IsNLB,'TCP','HTTP'] 
+      # ProtocolVersion: String
+      # TargetGroupAttributes: 
+      #   - stickiness.enabled
+      #   - stickiness.type
+      #   - ....
+      # Targets: 
+      #   - Id: 'i-072dae5ba3af72133'
+      #     Port: 80
+      #     AvailabilityZone: String
+      TargetType: 'instance'
+      UnhealthyThresholdCount: 2
+      VpcId: !Ref ApplicationVpc
+  LoadBalancerDNSRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId : !Ref HostedZoneId
+      Name: !Ref LoadBalancerDomainName
+      AliasTarget:
+        DNSName: !GetAtt MyLoadBalancer.DNSName
+        EvaluateTargetHealth: true
+        HostedZoneId: !GetAtt MyLoadBalancer.CanonicalHostedZoneID
+      Type: A    
+Outputs:
+  MyAlbArn:
+    Description: Load Balancer ARN
+    Value: !Ref MyLoadBalancer
+  MyAlbDomainName:
+    Description: Load Balancer Domain Name
+    Value: !Ref LoadBalancerDomainName
+  MyAlbTargetGroupArn:
+    Description: Load Balancer Target Group Arn
+    Value: !Ref ApplicationTargetGroup
