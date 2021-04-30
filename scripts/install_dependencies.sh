@@ -1,4 +1,5 @@
 #!/bin/bash
+if [[ ! -L  "/usr/share/tomcat" ]]; then
 amazon-linux-extras install java-openjdk11 -y
 groupadd --system tomcat
 useradd -d /usr/share/tomcat -r -s /bin/false -g tomcat tomcat
@@ -33,3 +34,4 @@ EOF
 systemctl daemon-reload
 systemctl enable tomcat
 iptables -t nat -A PREROUTING -i eth0 -p tcp --dport 80 -j REDIRECT --to-port 8080
+fi
