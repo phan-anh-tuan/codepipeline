@@ -1,5 +1,9 @@
 AWSTemplateFormatVersion: 2010-09-09
 Parameters:
+  ArtifactStore:
+    Type: String
+    Description: S3 Bucket where pipeline artifacts are stored
+    Default: tuaph-aws-case-support
   CodeBuildCwLogGroup:
     Type: String
     Description: CloudWatch Log Group for CodeBuild
@@ -21,6 +25,186 @@ Parameters:
     Description: The docker image used to build the application
     Default: aws/codebuild/amazonlinux2-x86_64-standard:3.0
 Resources:
+  CodePipelineServiceRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codepipeline.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+  CodePipelinePermissionPolicy: 
+    Type: 'AWS::IAM::Policy'
+    Properties: 
+      PolicyName: 'CodePipelineExecutionPermissions'
+      PolicyDocument: 
+        Version: '2012-10-17'
+        Statement: 
+          - Effect: 'Allow'
+            Action:
+              - 'iam:PassRole'
+            Resource: '*'
+            Condition:
+              StringEqualsIfExists:
+                iam:PassedToService:
+                  - 'cloudformation.amazonaws.com'
+                  - 'elasticbeanstalk.amazonaws.com'
+                  - 'ec2.amazonaws.com'
+                  - 'ecs-tasks.amazonaws.com'
+          - Effect: 'Allow'
+            Action:
+              - 'codecommit:CancelUploadArchive'
+              - 'codecommit:GetBranch'
+              - 'codecommit:GetCommit'
+              - 'codecommit:GetRepository'
+              - 'codecommit:GetUploadArchiveStatus'
+              - 'codecommit:UploadArchive'
+            Resource: '*'
+          - Effect: 'Allow'
+            Action:
+              - 'codedeploy:CreateDeployment'
+              - 'codedeploy:GetApplication'
+              - 'codedeploy:GetApplicationRevision'
+              - 'codedeploy:GetDeployment'
+              - 'codedeploy:GetDeploymentConfig'
+              - 'codedeploy:RegisterApplicationRevision'
+            Resource: '*'
+          - Effect: 'Allow'
+            Action:
+              - 'codestar-connections:UseConnection'
+            Resource: '*'
+          - Effect: 'Allow'
+            Action:
+              - 'elasticbeanstalk:*'
+              - 'ec2:*'
+              - 'elasticloadbalancing:*'
+              - 'autoscaling:*'
+              - 'cloudwatch:*'
+              - 's3:*'
+              - 'sns:*'
+              - 'cloudformation:*'
+              - 'rds:*'
+              - 'sqs:*'
+              - 'ecs:*'
+            Resource: '*'
+          - Effect: 'Allow'
+            Action:
+              - 'lambda:InvokeFunction'
+              - 'lambda:ListFunctions'
+            Resource: '*'
+          - Effect: 'Allow'
+            Action:
+              - 'opsworks:CreateDeployment'
+              - 'opsworks:DescribeApps'
+              - 'opsworks:DescribeCommands'
+              - 'opsworks:DescribeDeployments'
+              - 'opsworks:DescribeInstances'
+              - 'opsworks:DescribeStacks'
+              - 'opsworks:UpdateApp'
+              - 'opsworks:UpdateStack'
+            Resource: '*'
+          - Effect: 'Allow'
+            Action:
+              - 'codebuild:BatchGetBuilds'
+              - 'codebuild:StartBuild'
+              - 'codebuild:BatchGetBuildBatches'
+              - 'codebuild:StartBuildBatch'
+            Resource: '*'
+          - Effect: 'Allow'
+            Action:
+              - 'servicecatalog:ListProvisioningArtifacts'
+              - 'servicecatalog:CreateProvisioningArtifact'
+              - 'servicecatalog:DescribeProvisioningArtifact'
+              - 'servicecatalog:DeleteProvisioningArtifact'
+              - 'servicecatalog:UpdateProduct'
+            Resource: '*'
+          - Effect: 'Allow'
+            Action:
+              - 'devicefarm:ListProjects'
+              - 'devicefarm:ListDevicePools'
+              - 'devicefarm:GetRun'
+              - 'devicefarm:GetUpload'
+              - 'devicefarm:CreateUpload'
+              - 'devicefarm:ScheduleRun'
+            Resource: '*'
+          - Effect: 'Allow'
+            Action:
+              - 'ecr:DescribeImages'
+            Resource: '*'
+          - Effect: 'Allow'
+            Action:
+              - 'states:DescribeExecution'
+              - 'states:DescribeStateMachine'
+              - 'states:StartExecution'
+            Resource: '*'
+          - Effect: 'Allow'
+            Action:
+              - 'appconfig:StartDeployment'
+              - 'appconfig:StopDeployment'
+              - 'appconfig:GetDeployment'
+            Resource: '*'
+      Roles:
+        - !Ref CodePipelineServiceRole
+  ApplicationPipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties: 
+      ArtifactStore: 
+        # EncryptionKey: #use the default key for Amazon S3
+        Location: !Ref ArtifactStore
+        Type: S3
+      # ArtifactStores: 
+      #   - ArtifactStoreMap
+      # DisableInboundStageTransitions: 
+      #   - StageTransition
+      Name: java-web-application-pipeline
+      RestartExecutionOnUpdate: true
+      RoleArn: !GetAtt CodePipelineServiceRole.Arn
+      Stages: 
+        - Actions: 
+            - ActionTypeId: 
+                Category: Source
+                Owner: AWS
+                Provider: CodeStarSourceConnection
+                Version: 1
+              Configuration:
+                BranchName: 'main'
+                ConnectionArn: 'arn:aws:codestar-connections:ap-southeast-2:419790583141:connection/b7a75d2b-ce87-42dc-b16f-c83b5c628f7d'
+                FullRepositoryId: 'phan-anh-tuan/codepipeline'
+                OutputArtifactFormat: 'CODEBUILD_CLONE_REF'
+              # InputArtifacts: 
+              Name: 'download-source'
+              Namespace: SourceVariables
+              OutputArtifacts: 
+                - Name: 'SourceArtifact'
+              Region: !Ref 'AWS::Region'
+              # RoleArn: String
+              RunOrder: 1
+          # Blockers: 
+          #   - BlockerDeclaration
+          Name: Source
+        - Actions: 
+            - ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: 1
+              Configuration:
+                BatchEnabled: false
+                ProjectName: !Ref ApplicationBuilder
+              InputArtifacts:
+                - Name: SourceArtifact
+              Name: 'build-then-containerise-the-app'
+              Namespace: 'BuildVariables'
+              OutputArtifacts: 
+                - Name: 'BuildArtifact'
+          Name: Build
+      # Tags: 
+      #   - Tag
   CodeBuildServiceRole:
     Type: 'AWS::IAM::Role'
     Properties:
@@ -46,7 +230,7 @@ Resources:
           - Effect: 'Allow'
             Action:
               - 'codestar-connections:UseConnection'
-            Resource: "*"
+            Resource: '*'
       Roles:
         - !Ref CodeBuildServiceRole
   EcrReadWritePolicy: 
@@ -64,7 +248,7 @@ Resources:
               - 'ecr:InitiateLayerUpload'
               - 'ecr:PutImage'
               - 'ecr:UploadLayerPart'
-            Resource: "*"
+            Resource: '*'
       Roles: 
         - !Ref CodeBuildServiceRole
   CodeBuildPolicy: 
@@ -81,7 +265,7 @@ Resources:
               - 'codebuild:UpdateReport'
               - 'codebuild:BatchPutTestCases'
               - 'codebuild:BatchPutCodeCoverages'
-            Resource: "*"
+            Resource: '*'
       Roles: 
         - !Ref CodeBuildServiceRole
   CloudWatchPolicy: 
@@ -96,7 +280,7 @@ Resources:
               - 'logs:CreateLogGroup'
               - 'logs:CreateLogStream'
               - 'logs:PutLogEvents'
-            Resource: "*"
+            Resource: '*'
       Roles: 
         - !Ref CodeBuildServiceRole
   ApplicationBuilder:
