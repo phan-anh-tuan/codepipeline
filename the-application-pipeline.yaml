@@ -1,0 +1,166 @@
+AWSTemplateFormatVersion: 2010-09-09
+Parameters:
+  CodeBuildCwLogGroup:
+    Type: String
+    Description: CloudWatch Log Group for CodeBuild
+    Default: /aws/codebuild/java-web-application
+  S3BucketForBuildCache:
+    Type: String
+    Description: Bucket that contains the build cache
+    Default: my-codepipeline-tutorial
+  S3PrefixForBuildCache:
+    Type: String
+    Description: S3 folder that contains the build cache
+    Default: cache/archives
+  EcrApplicationRepo:
+    Type: String
+    Description: S3 folder that contains the build cache
+    Default: java-web-app
+  DockerImageUsedToBuildTheApp:
+    Type: String
+    Description: The docker image used to build the application
+    Default: aws/codebuild/amazonlinux2-x86_64-standard:3.0
+Resources:
+  CodeBuildServiceRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+  GitHubConnectionUsagePolicy: 
+    Type: 'AWS::IAM::Policy'
+    Properties: 
+      PolicyName: 'AllowGitHubConnectionUsage'
+      PolicyDocument: 
+        Version: '2012-10-17'
+        Statement: 
+          - Effect: 'Allow'
+            Action:
+              - 'codestar-connections:UseConnection'
+            Resource: "*"
+      Roles:
+        - !Ref CodeBuildServiceRole
+  EcrReadWritePolicy: 
+    Type: 'AWS::IAM::Policy'
+    Properties: 
+      PolicyName: 'AllowPushImagesToECR'
+      PolicyDocument: 
+        Version: '2012-10-17'
+        Statement: 
+          - Effect: 'Allow'
+            Action:
+              - 'ecr:BatchCheckLayerAvailability'
+              - 'ecr:CompleteLayerUpload'
+              - 'ecr:GetAuthorizationToken'
+              - 'ecr:InitiateLayerUpload'
+              - 'ecr:PutImage'
+              - 'ecr:UploadLayerPart'
+            Resource: "*"
+      Roles: 
+        - !Ref CodeBuildServiceRole
+  CodeBuildPolicy: 
+    Type: 'AWS::IAM::Policy'
+    Properties: 
+      PolicyName: 'AllowVariousCodeBuildPermissions'
+      PolicyDocument: 
+        Version: '2012-10-17'
+        Statement: 
+          - Effect: 'Allow'
+            Action:
+              - 'codebuild:CreateReportGroup'
+              - 'codebuild:CreateReport'
+              - 'codebuild:UpdateReport'
+              - 'codebuild:BatchPutTestCases'
+              - 'codebuild:BatchPutCodeCoverages'
+            Resource: "*"
+      Roles: 
+        - !Ref CodeBuildServiceRole
+  CloudWatchPolicy: 
+    Type: 'AWS::IAM::Policy'
+    Properties: 
+      PolicyName: 'AllowCloudWatchLogPush'
+      PolicyDocument: 
+        Version: '2012-10-17'
+        Statement: 
+          - Effect: 'Allow'
+            Action:
+              - 'logs:CreateLogGroup'
+              - 'logs:CreateLogStream'
+              - 'logs:PutLogEvents'
+            Resource: "*"
+      Roles: 
+        - !Ref CodeBuildServiceRole
+  ApplicationBuilder:
+    Type: AWS::CodeBuild::Project
+    Properties: 
+      Artifacts: 
+        Type: CODEPIPELINE
+      # BuildBatchConfig: 
+      #   ProjectBuildBatchConfig
+      Cache: 
+        Location: !Join
+                    - '/'
+                    - - !Ref S3BucketForBuildCache
+                      - !Ref S3PrefixForBuildCache
+        # Modes: How to increase the build speed by caching docker layers
+        Type: S3
+      # ConcurrentBuildLimit: Integer
+      Description: Build the war file and dockerize the application
+      # EncryptionKey: String
+      Environment: 
+        # Certificate: String
+        ComputeType: BUILD_GENERAL1_SMALL
+        EnvironmentVariables: 
+          - Name: AWS_DEFAULT_REGION
+            Type: PLAINTEXT # use PARAMETER_STORE or SECRETS_MANAGER for sensitive data
+            Value: !Ref 'AWS::Region'
+          - Name: AWS_ACCOUNT_ID
+            Type: PLAINTEXT
+            Value: !Ref 'AWS::AccountId'
+          - Name: IMAGE_TAG
+            Type: PLAINTEXT
+            Value: latest
+          - Name: IMAGE_REPO_NAME
+            Type: PLAINTEXT
+            Value: !Ref EcrApplicationRepo
+        Image: !Ref DockerImageUsedToBuildTheApp
+        ImagePullCredentialsType: CODEBUILD
+        PrivilegedMode: true
+        # RegistryCredential: 
+        #   RegistryCredential
+        Type: LINUX_CONTAINER
+      # FileSystemLocations: 
+      #   - ProjectFileSystemLocation
+      LogsConfig: 
+        CloudWatchLogs: 
+          GroupName: !Ref CodeBuildCwLogGroup
+          Status: ENABLED
+          # StreamName:
+      Name: java-web-application-builder
+      QueuedTimeoutInMinutes: 480 #default queued timeout
+      # SecondaryArtifacts: 
+      #   - Artifacts
+      # SecondarySources: 
+      #   - Source
+      # SecondarySourceVersions: 
+      #   - ProjectSourceVersion
+      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+      Source: 
+        Type: CODEPIPELINE
+      # SourceVersion: String
+      # Tags: 
+      #   - Tag
+      TimeoutInMinutes: 60 #default build timeout
+      # Triggers: 
+      #   ProjectTriggers
+      # VpcConfig: 
+      #   VpcConfig
